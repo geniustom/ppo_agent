@@ -38,6 +38,8 @@ class bcolors:
 
 class PPOAgentBase(ABC):
 	def __init__(self, env, experiment_name, 
+							actor_model=None, 
+							critic_model=None,
 							LEARNING_RATE=2.5e-4, 
 							LEARNING_RATE_TARGET=0, 
 							LOSS_CLIPPING=0.2,
@@ -63,7 +65,8 @@ class PPOAgentBase(ABC):
 		# TODO: Add support for continious action space.
 		self.action_shape = self.env.unwrapped.action_space.n
 		self.observation_shape = self.env.unwrapped.observation_space.shape
-
+		self.actor_model=actor_model
+		self.critic_model=critic_model
 		self.network_style = network_style
 
 		# Algorithm Hyperparameters
@@ -93,8 +96,8 @@ class PPOAgentBase(ABC):
 
 		# Models
 		self.actor, self.critic = self.build_actor_critic()
-		self.ACTModel=am.GModel(model=self.actor,path="./best_actor.h5")
-		self.CRTModel=am.GModel(model=self.critic,path="./best_critic.h5")
+		self.ACTModel=am.GModel(model=self.actor,path="./"+self.ENV_NAME+"_actor.h5")
+		self.CRTModel=am.GModel(model=self.critic,path="./"+self.ENV_NAME+"_critic.h5")
 
 		# These are used when you are prediction the action.
 		self.DUMMY_ACTION = np.zeros((1, self.action_shape))
@@ -253,8 +256,8 @@ class PPOAgentBase(ABC):
 		if self.max_best_mean < current_mean and self.episode>=50:
 			self.max_best_mean = current_mean
 			self.best_reward=self.max_best_mean
-			self.actor.save("./best_actor.h5")
-			self.critic.save("./best_critic.h5")
+			self.actor.save("./"+self.ENV_NAME+"_actor.h5")
+			self.critic.save("./"+self.ENV_NAME+"_critic.h5")
 			print(f"The best model has been saved with the new {current_mean} reward.")
 
 		episode_prediction = self.CRTModel.model.predict(np.expand_dims(observations[0], axis=0)).squeeze()

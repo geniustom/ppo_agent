@@ -1,19 +1,13 @@
 import tensorflow as tf
-import numpy as np
-import gym
-import time
-import datetime
-import os, os.path
+import os
 #import model as mm
 
 # python – Keras：如何保存模型并继续培训？ https://codeday.me/bug/20180921/257413.html
 # Initial framework taken from https://github.com/jaara/AI-blog/blob/master/CartPole-A3C.py
 import numpy as np
 
-import gym
-import collections
-from statistics import mean
 
+from statistics import mean
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense,Flatten,Lambda,concatenate,add
 from tensorflow.keras import backend as K
@@ -37,6 +31,8 @@ def null_option(t1,t2):
 
 class PPO(PPOAgentBase):        
 	def __init__(self, env, experiment_name,
+						actor_model=None, 
+						critic_model=None,
 						LEARNING_RATE=5e-4, 
 						LEARNING_RATE_TARGET=5e-5, 
 						LOSS_CLIPPING=0.2,
@@ -48,6 +44,8 @@ class PPO(PPOAgentBase):
 						EPOCHS=5, 
 						TRAINING_STEP_LENGTH=1e4):
 		super().__init__(env=env, experiment_name=experiment_name,
+								  actor_model=actor_model, 
+								  critic_model=critic_model,
 								  LEARNING_RATE=LEARNING_RATE, 
 								  LEARNING_RATE_TARGET=LEARNING_RATE_TARGET,
 								  LOSS_CLIPPING=LOSS_CLIPPING, 
@@ -70,25 +68,21 @@ class PPO(PPOAgentBase):
 		######################## Actor ########################
 		old_prediction = Input(shape=(self.action_shape,), name="old_prediction")
 		advantage = Input(shape=(1,), name="advantage")
-		observation_input_actor = Input(shape=self.observation_shape,  name="observation_actor")
-		#tmp_layers = null_option(advantage,old_prediction)
-		hidden_layers = Dense(128, activation='relu')(observation_input_actor)
-		hidden_layers = Dense(128, activation='relu')(hidden_layers)
-		#hidden_layers = concatenate([hidden_layers,tmp_layers])
-		out_actions = Dense(self.action_shape, activation='softmax', name='output')(hidden_layers)
+		ob_input_actor = Input(shape=self.observation_shape,  name="observation_actor")
+		actor_model=self.actor_model(ob_input_actor)
+		out_actions = Dense(self.action_shape, activation='softmax', name='output')(actor_model)
 		actor_loss=proximal_policy_optimization_loss(
 									advantage=advantage,
 									old_prediction=old_prediction, 
 									LOSS_CLIPPING=self.LOSS_CLIPPING, 
 									ENTROPY_LOSS=self.ENTROPY_LOSS)
-		actor = Model(inputs=[observation_input_actor, advantage, old_prediction],  outputs=[out_actions])
+		actor = Model(inputs=[ob_input_actor, advantage, old_prediction],  outputs=[out_actions])
 		actor.compile(optimizer=Adam(lr=self.LEARNING_RATE), loss=actor_loss)
 		######################## Critic ########################
-		observation_input_critic = Input(shape=self.observation_shape,  name="observation_critic")
-		hidden_layers = Dense(128, activation='relu')(observation_input_critic)
-		hidden_layers = Dense(128, activation='relu')(hidden_layers)
-		out_value = Dense(1, name='critic')(hidden_layers)
-		critic = Model(inputs=[observation_input_critic], outputs=[out_value])
+		ob_input_critic = Input(shape=self.observation_shape,  name="observation_critic")
+		critic_model=self.critic_model(ob_input_critic)
+		out_value = Dense(1, name='critic')(critic_model)
+		critic = Model(inputs=[ob_input_critic], outputs=[out_value])
 		critic.compile(optimizer=Adam(lr=self.LEARNING_RATE),loss="mse")
 		#######################################################
 	
@@ -104,6 +98,31 @@ class PPO(PPOAgentBase):
 		return actor, critic
 
 
+	def learn(self):
+		while self.steps < self.TRAINING_STEP_LENGTH:
+			obs, action, pred, reward = self.get_batch()
+			old_prediction = pred
+			pred_values = self.critic.predict(obs)
+			advantage = reward - pred_values
+			
+			# Normalize the advantage
+			advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+			actor_callbacks = [EarlyStopByKL(self.EARLY_STOPPING_KL_AMOUNT, obs, advantage, old_prediction, action,self.last_kl_divergence)]
+			self.actor_loss =self.ACTModel.model.fit([obs, advantage, old_prediction], [action], batch_size=self.BATCH_SIZE, 
+											shuffle=True, epochs=self.EPOCHS, callbacks=actor_callbacks, verbose=False,
+											initial_epoch=self.ACTModel.last_epoch + 1)		
+			self.critic_loss= self.CRTModel.model.fit([obs], [reward], batch_size=self.BATCH_SIZE, 
+											shuffle=True, epochs=self.EPOCHS, verbose=False, initial_epoch=self.CRTModel.last_epoch + 1)		
+			new_lr = self.get_new_learning_rate()
+			K.set_value(self.actor.optimizer.lr, new_lr) 
+			K.set_value(self.critic.optimizer.lr, new_lr) 
+			
+			self.gradient_steps += 1
+
+
+
+
+'''
 	def learn(self):
 		while self.steps < self.TRAINING_STEP_LENGTH:
 			obs, action, pred, reward = self.get_batch()
@@ -135,4 +154,4 @@ class PPO(PPOAgentBase):
 			K.set_value(self.critic.optimizer.lr, new_lr) 
 			
 			self.gradient_steps += 1
-
+'''
